@@ -1,0 +1,100 @@
+name: Build kong-demo-yaya-demo2 booking-service API - Generate Kong Configs
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/*
+      - main
+    paths:
+      - 'booking-service/openapi.yaml'
+      - 'booking-service/kong/**'
+      - 'kong/plugins/**'
+      - 'kong/consumers/**'
+      - '.github/workflows/build-booking-service.yaml'
+
+jobs:
+  oas-to-kong:
+    name: Convert OAS to Kong configurations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup deck
+        uses: kong/setup-deck@v1
+        with:
+          deck-version: '1.40.3'
+          wrapper: false
+
+      - name: Generate Kong Declarative Configs from OpenAPI
+        run: |
+          deck file openapi2kong \
+            --spec booking-service/openapi.yaml \
+            --output-file booking-service/kong/.generated/kong.yaml
+
+      - name: Merge all plugins
+        run: |
+          files=$(find kong/plugins -name "*.yaml" -type f) \
+          && deck file merge $files booking-service/kong/.generated/kong.yaml --output-file booking-service/kong/.generated/kong.yaml
+
+      - name: Merge consumers
+        run: |
+          files=$(find kong/consumers -name "*.yaml" -type f) \
+          && deck file merge $files booking-service/kong/.generated/kong.yaml --output-file booking-service/kong/.generated/kong.yaml
+
+      - name: Add tags
+        run: |
+          cat booking-service/kong/.generated/kong.yaml | \
+          deck file add-tags booking-service \
+          --selector "$.services[*]" \
+          --selector "$.services[*].routes[*]"  \
+          --selector "$.plugins[*]" \
+          --selector "$.consumers[*]" \
+          --output-file booking-service/kong/.generated/kong.yaml
+
+      - name: Apply optional patches
+        run: |
+          if [ -f "booking-service/kong/patches.yaml" ]; then
+            cat booking-service/kong/.generated/kong.yaml | \
+            deck file patch booking-service/kong/patches.yaml \
+            --output-file booking-service/kong/.generated/kong.yaml
+          else
+            echo "No patches.yaml found, skipping patch step"
+          fi
+
+      - name: Validate Kong config
+        run: |
+          deck file validate booking-service/kong/.generated/kong.yaml
+          echo "Validation passed"
+
+
+      - name: Copy artifact
+        run: |
+          mkdir -p .github/artifacts/booking-service/
+          cp booking-service/kong/.generated/kong.yaml \
+            .github/artifacts/booking-service/booking-service-kong.yaml
+          echo "Artifact copied"
+
+      - name: Deck diff for Konnect
+        id: deck-diff
+        run: |
+          deck gateway diff \
+            --select-tag booking-service \
+            --konnect-control-plane-name ${{vars.KONNECT_INTERNAL_CP}} \
+            --konnect-token ${{ secrets.KONNECT_PAT }} \
+            --konnect-addr ${{vars.KONNECT_ADDR}} \
+            .github/artifacts/booking-service/booking-service-kong.yaml || true
+          echo "Deck diff generated"
+
+
+      #an artifact file will be committed only if it the Kong config differs from the previous one.
+      - name: Check status of any files to be committed
+        run: git status
+
+      - name: Create PR to stage changes for the Kong Gateway in production
+        uses: peter-evans/create-pull-request@v5
+        with:
+          title: "❗PRD❗: Staged changes for Kong Gateway PRD deployment - demo_yaya-demo2 booking-service"
+          labels: "PRD,booking-service"
+          body: "Staged changes for deploying demo_yaya-demo2 booking-service to PRD. Review the deck diff in the workflow logs."
