@@ -1,0 +1,12 @@
+plugins:
+- name: rate-limiting
+  config:
+    second: 5
+    hour: 1000
+    policy: local
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2000
+      tls:
+        enabled: false
