@@ -1,0 +1,55 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Booking Service",
+    "version": "1.0.0",
+    "description": "Book tickets on KongAir"
+  },
+  "servers": [
+    {
+      "url": "https://api.kong-air.com"
+    }
+  ],
+  "paths": {
+    "/bookings": {
+      "post": {
+        "summary": "Create booking",
+        "operationId": "create-booking",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "flight_id": {
+                    "type": "string"
+                  },
+                  "seat": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Booking created"
+          }
+        },
+        "x-kong-name": "create-booking"
+      },
+      "get": {
+        "summary": "List bookings",
+        "operationId": "list-bookings",
+        "responses": {
+          "200": {
+            "description": "Bookings list"
+          }
+        },
+        "x-kong-name": "list-bookings"
+      }
+    }
+  },
+  "x-kong-name": "booking-service"
+}
