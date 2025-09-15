@@ -1,0 +1,72 @@
+name: Deploy demo_yaya-demo2 booking-service API to Kong
+
+on:
+  push:
+    branches:
+      - main
+      - feat/*
+    paths:
+      - '.github/artifacts/booking-service/*.yaml'
+      - '.github/workflows/deploy-booking-service.yaml'
+
+  workflow_dispatch:
+
+jobs:
+  deploy-api-to-kong:
+    name: Deploy demo_yaya-demo2 booking-service API to Kong
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Check if file exists
+        id: check_file
+        run: |
+          if [ ! -f ".github/artifacts/booking-service/booking-service-kong.yaml" ]; then
+            echo "Artifact file not found at .github/artifacts/booking-service/booking-service-kong.yaml. Stopping workflow. Run the build workflow before deploy."
+            exit 1
+          fi
+
+          echo "Artifact file exists!"
+
+      - name: Setup deck
+        uses: kong/setup-deck@v1
+        with:
+          deck-version: '1.40.3'
+          wrapper: false
+
+      - name: Validate connectivity to Konnect
+        run: |
+          deck gateway ping \
+          --konnect-control-plane-name ${{vars.KONNECT_INTERNAL_CP}} \
+          --konnect-token ${{ secrets.KONNECT_PAT }} \
+          --konnect-addr ${{vars.KONNECT_ADDR}}
+
+      - name: Apply Configuration to Kong
+        run: |
+          deck gateway sync --select-tag booking-service \
+           .github/artifacts/booking-service/booking-service-kong.yaml \
+            --konnect-control-plane-name ${{vars.KONNECT_INTERNAL_CP}} \
+            --konnect-token ${{ secrets.KONNECT_PAT }} \
+            --konnect-addr ${{vars.KONNECT_ADDR}}
+
+      - name: Sleep for a couple of seconds
+        run: sleep 10
+
+      - name: Run Integration Tests
+        run: |
+          if [ -d "booking-service/tests" ]; then
+            for test_script in booking-service/tests/*.sh; do
+              if [ -f "$test_script" ]; then
+                echo "Running $test_script"
+                bash "$test_script"
+                if [ $? -ne 0 ]; then
+                  echo "Test $test_script failed"
+                  exit 1
+                fi
+              fi
+            done
+          else
+            echo "No tests directory found, skipping integration tests"
+          fi
